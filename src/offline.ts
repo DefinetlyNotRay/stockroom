@@ -36,9 +36,14 @@ export function createOfflineStore(storage: Store) {
             !item ||
             typeof item.id !== "string" ||
             !item.id ||
-            !["ingredient", "settings", "receive", "use", "adjust"].includes(
-              item.kind,
-            ) ||
+            ![
+              "ingredient",
+              "settings",
+              "receive",
+              "use",
+              "adjust",
+              "opname",
+            ].includes(item.kind) ||
             !item.data ||
             typeof item.data !== "object" ||
             Array.isArray(item.data) ||

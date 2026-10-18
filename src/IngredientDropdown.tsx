@@ -75,6 +75,7 @@ export default function IngredientDropdown({
               <TextInput
                 accessibilityLabel="Search ingredients"
                 placeholder="Search ingredients"
+                placeholderTextColor="#000000"
                 value={search}
                 onChangeText={setSearch}
                 editable={!disabled}

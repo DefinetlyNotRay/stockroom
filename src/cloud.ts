@@ -106,7 +106,7 @@ export async function readInventory(
 }
 export type StockCommand = {
   id: string;
-  kind: "ingredient" | "settings" | "receive" | "use" | "adjust";
+  kind: "ingredient" | "settings" | "receive" | "use" | "adjust" | "opname";
   data: Record<string, unknown>;
 };
 export async function pushOfflineCommand(
@@ -118,13 +118,18 @@ export async function pushOfflineCommand(
   const timer = setTimeout(() => controller.abort(), 12000);
   try {
     const { error } = await cloud
-      .rpc("inventory_sync_command", {
-        p_owner: owner,
-        p_id: command.id,
-        p_kind: command.kind,
-        p_data: command.data,
-        p_occurred_at: command.occurredAt,
-      })
+      .rpc(
+        command.kind === "opname"
+          ? "inventory_sync_opname"
+          : "inventory_sync_command",
+        {
+          p_owner: owner,
+          p_id: command.id,
+          p_kind: command.kind,
+          p_data: command.data,
+          p_occurred_at: command.occurredAt,
+        },
+      )
       .abortSignal(controller.signal);
     if (error) throw Error(error.message);
   } finally {

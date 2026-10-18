@@ -1,9 +1,11 @@
 import * as Print from "expo-print";
 import { File, Paths } from "expo-file-system";
 import { saveToDownloads } from "../modules/stockroom-downloads";
-import { createExcelReport } from "./excel";
+import { createCountReport, createExcelReport } from "./excel";
 import { Inventory } from "./inventory";
 import { filterReport, ReportFilters } from "./reportFilters";
+import type { CountDraft } from "./opname";
+import { reportDocument, reportTable } from "./reportHtml";
 const escape = (v: unknown) =>
   String(v ?? "").replace(
     /[&<>"']/g,
@@ -19,8 +21,11 @@ export async function exportReport(
 ) {
   const data = filterReport(source, filters);
   const scope = `${filters.ingredientIds ? data.ingredients.map((i) => i.name).join(", ") : "All ingredients"} · ${filters.from || "All dates"}${filters.to ? ` to ${filters.to}` : ""}`;
+  if (kind === "xlsx")
+    return saveReportFile(await createExcelReport(data, scope), kind);
+  const ingredients = new Map(data.ingredients.map((i) => [i.id, i]));
   const stock = data.batches.map((b) => {
-    const i = data.ingredients.find((i) => i.id === b.ingredientId);
+    const i = ingredients.get(b.ingredientId);
     return {
       Ingredient: i?.name ?? "",
       Batch: b.code,
@@ -31,9 +36,9 @@ export async function exportReport(
     };
   });
   const movements = data.movements.map((m) => {
-    const i = data.ingredients.find((i) => i.id === m.ingredientId);
+    const i = ingredients.get(m.ingredientId);
     return {
-      Date: m.date,
+      Date: new Date(m.date).toLocaleString(),
       Ingredient: i?.name ?? "",
       Batch: m.batch,
       Type: m.type,
@@ -44,18 +49,67 @@ export async function exportReport(
   });
   let content: string | Uint8Array;
   if (kind === "pdf") {
-    const table = (rows: Record<string, unknown>[], headers: string[]) =>
-      `<table><thead><tr>${headers.map((h) => `<th>${escape(h)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${headers.map((h) => `<td>${escape(r[h])}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
     const result = await Print.printToFileAsync({
       // Use bytes, not the print module's private temporary file URI.
       base64: true,
-      html: `<html><head><meta charset="utf-8"><style>@page{margin:30px}body{font:11px sans-serif;color:#20382c}h1{font-size:28px}h2{margin-top:30px}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:8px;border-bottom:1px solid #ddd}th{background:#e9efe5}thead{display:table-header-group}tr{page-break-inside:avoid}</style></head><body><h1>Stockroom</h1><p>${escape(new Date().toLocaleString())}</p><p>${escape(scope)}</p><h2>Current stock</h2>${table(stock, ["Ingredient", "Batch", "Quantity", "Unit", "Received", "Expiry"])}<h2>Movements</h2>${table(movements, ["Date", "Ingredient", "Batch", "Type", "Quantity", "Unit", "Reason"])}</body></html>`,
+      width: 842,
+      height: 595,
+      html: reportDocument(
+        "Stockroom",
+        `${new Date().toLocaleString()} · ${scope}`,
+        `<p>Stock quantities are current. Date filters apply to movement history.</p><h2>Current stock (${stock.length} batches)</h2>${reportTable(stock, ["Ingredient", "Batch", "Quantity", "Unit", "Received", "Expiry"])}<h2>Movements (${movements.length})</h2>${reportTable(movements, ["Date", "Ingredient", "Batch", "Type", "Quantity", "Unit", "Reason"])}`,
+      ),
     });
     if (!result.base64) throw Error("Could not generate the PDF file.");
     content = result.base64;
-  } else {
-    content = await createExcelReport(data, scope);
-  }
+  } else throw Error("Unsupported export format.");
+  return saveReportFile(content, kind);
+}
+
+export async function exportCount(
+  draft: CountDraft,
+  kind: "pdf" | "xlsx",
+  template = false,
+) {
+  if (kind === "xlsx")
+    return saveReportFile(await createCountReport(draft, template), kind);
+  const rows = draft.rows.map((r) => {
+    const count = r.count.trim() === "" ? null : Number(r.count);
+    if (
+      count !== null &&
+      (!Number.isFinite(count) ||
+        count > 1e12 ||
+        !/^\d+(\.\d{1,3})?$/.test(r.count.trim()))
+    )
+      throw Error(`Check physical count for ${r.name} / ${r.batch}.`);
+    return {
+      Name: r.name,
+      Batch: r.batch,
+      System: r.expected,
+      Physical: count ?? "Not counted",
+      Difference:
+        count === null ? "" : Math.round((count - r.expected) * 1000) / 1000,
+      Unit: r.unit,
+    };
+  });
+  const result = await Print.printToFileAsync({
+    base64: true,
+    width: 842,
+    height: 595,
+    html: reportDocument(
+      "Stock opname comparison",
+      `${draft.approvedAt ? "Approved locally - check cloud sync status" : "Draft"} · Started ${draft.startedAt} · ${draft.id}`,
+      `<p>${escape(draft.reason)}</p>${reportTable(rows, ["Name", "Batch", "System", "Physical", "Difference", "Unit"])}`,
+    ),
+  });
+  if (!result.base64) throw Error("Could not generate PDF.");
+  return saveReportFile(result.base64, kind);
+}
+
+async function saveReportFile(
+  content: string | Uint8Array,
+  kind: "pdf" | "xlsx",
+) {
   const mimeType =
     kind === "pdf"
       ? "application/pdf"

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import { filterReport } from "../src/reportFilters.ts";
+import { reportDocument, reportTable } from "../src/reportHtml.ts";
 const compiled = ts.transpileModule(
   readFileSync(new URL("../src/reports.ts", import.meta.url), "utf8"),
   {
@@ -14,8 +15,7 @@ const compiled = ts.transpileModule(
     },
   },
 ).outputText;
-const target =
-  "content://media/external/downloads/42";
+const target = "content://media/external/downloads/42";
 const pdfBytes = Buffer.from("%PDF-1.7\nstockroom");
 const empty = { ingredients: [], batches: [], movements: [] };
 function harness({
@@ -73,6 +73,7 @@ function harness({
       createExcelReport: async () => new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
     },
     "./reportFilters": { filterReport },
+    "./reportHtml": { reportDocument, reportTable },
   };
   const context = vm.createContext({
     exports: {},

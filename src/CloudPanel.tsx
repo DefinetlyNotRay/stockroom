@@ -156,6 +156,7 @@ export default function CloudPanel({
         value={email}
         onChangeText={setEmail}
         placeholder="Email"
+        placeholderTextColor="#000000"
         keyboardType="email-address"
         autoCapitalize="none"
         autoCorrect={false}
@@ -168,6 +169,7 @@ export default function CloudPanel({
         value={password}
         onChangeText={setPassword}
         placeholder="Password"
+        placeholderTextColor="#000000"
         secureTextEntry
         autoCapitalize="none"
         autoComplete={creating ? "new-password" : "current-password"}
@@ -180,6 +182,7 @@ export default function CloudPanel({
           value={confirmation}
           onChangeText={setConfirmation}
           placeholder="Confirm password"
+          placeholderTextColor="#000000"
           secureTextEntry
           autoCapitalize="none"
           autoComplete="new-password"
@@ -269,6 +272,8 @@ export default function CloudPanel({
 }
 const s = StyleSheet.create({
   input: {
+    color: "#000000",
+    backgroundColor: "#FFFDF8",
     borderWidth: 1,
     borderColor: "#D9DED2",
     borderRadius: 14,

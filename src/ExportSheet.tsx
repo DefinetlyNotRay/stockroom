@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import DateField from "./DateField";
 import type { Inventory } from "./inventory";
 import type { ReportFilters } from "./reportFilters";
+import { filterReport } from "./reportFilters";
 import { exportReport } from "./reports";
 import PagedList from "./PagedList";
 export default function ExportSheet({
@@ -25,7 +26,7 @@ export default function ExportSheet({
   data: Inventory;
   kind: "pdf" | "xlsx";
   onClose: () => void;
-  loadData?: () => Promise<Inventory>;
+  loadData?: (filters: ReportFilters) => Promise<Inventory>;
 }) {
   const [range, setRange] = useState(false);
   const [from, setFrom] = useState("");
@@ -69,8 +70,9 @@ export default function ExportSheet({
     working.current = true;
     setBusy(true);
     try {
+      filterReport(data, filters);
       const saved = await exportReport(
-        loadData ? await loadData() : data,
+        loadData ? await loadData(filters) : data,
         kind,
         filters,
       );
@@ -149,6 +151,7 @@ export default function ExportSheet({
                 value={search}
                 onChangeText={setSearch}
                 placeholder="Search ingredients"
+                placeholderTextColor="#000000"
                 accessibilityLabel="Search ingredients to export"
               />
               <PagedList
@@ -250,6 +253,7 @@ const s = StyleSheet.create({
   },
   active: { backgroundColor: "#184D3E" },
   search: {
+    color: "#000000",
     backgroundColor: "#ECEEE6",
     minHeight: 54,
     borderRadius: 14,

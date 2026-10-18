@@ -31,6 +31,9 @@ import {
   validDate,
 } from "./inventory";
 import ExportSheet from "./ExportSheet";
+import { loadCloudReport } from "./loadReport";
+import StockOpname from "./StockOpname";
+import { applyCount, countEntries, type CountDraft } from "./opname";
 import CloudPanel from "./CloudPanel";
 import DateField from "./DateField";
 import IngredientDropdown from "./IngredientDropdown";
@@ -106,7 +109,7 @@ function Field({
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor="#91968e"
+        placeholderTextColor="#000000"
         keyboardType={numeric ? "decimal-pad" : "default"}
         autoCapitalize="none"
       />
@@ -125,7 +128,11 @@ export default function AppScreen() {
   const [data, setData] = useState<Inventory>(emptyInventory);
   const live = useRef(data);
   const [ready, setReady] = useState(false);
-  const params = useLocalSearchParams<{ tab?: Tab; ingredient?: string }>();
+  const params = useLocalSearchParams<{
+    tab?: Tab;
+    ingredient?: string;
+    opname?: string;
+  }>();
   const tab = tabs.some((t) => t.name === params.tab) ? params.tab! : "Home";
   const setTab = (v: Tab) => router.setParams({ tab: v });
   const [search, setSearch] = useState("");
@@ -283,6 +290,51 @@ export default function AppScreen() {
     );
     live.current = next;
     setData(next);
+  }
+  async function approveCount(draft: CountDraft) {
+    if (saving.current) throw Error("Wait for the current save to finish.");
+    if (cloud && !account) throw Error("Sign in under More first.");
+    saving.current = true;
+    setBusy(true);
+    const owner = account;
+    try {
+      const before = live.current;
+      const occurredAt = new Date().toISOString();
+      // Recover if the app closed after the inventory save but before the draft update.
+      const existing = before.movements.find(
+        (m) =>
+          m.id.startsWith(`${draft.id}:`) ||
+          m.reason?.endsWith(`[${draft.id}]`),
+      );
+      if (existing) return existing.date;
+      const entries = countEntries(draft, before);
+      const next = applyCount(draft, before, occurredAt);
+      if (owner) {
+        const record = await offlineStorage.enqueue(
+          owner,
+          {
+            id: draft.id,
+            kind: "opname",
+            occurredAt,
+            data: { entries, reason: draft.reason.trim() },
+          },
+          next,
+          storeVersion.current,
+          before,
+        );
+        if (activeAccount.current !== owner)
+          throw Error("Account changed. Count saved to the original account.");
+        applyOfflineRecord(owner, record);
+        setTimeout(() => {
+          if (activeAccount.current === owner)
+            void refreshInventory().catch(showSyncError);
+        }, 0);
+      } else await commit(next);
+      return occurredAt;
+    } finally {
+      saving.current = false;
+      setBusy(false);
+    }
   }
   async function refreshInventory() {
     if (saving.current) return;
@@ -906,6 +958,7 @@ export default function AppScreen() {
             <TextInput
               accessibilityLabel="Search ingredients"
               placeholder="Search ingredients"
+              placeholderTextColor="#000000"
               value={search}
               onChangeText={setSearch}
               style={s.search}
@@ -974,6 +1027,7 @@ export default function AppScreen() {
             <TextInput
               style={s.search}
               placeholder="Search ingredients"
+              placeholderTextColor="#000000"
               accessibilityLabel="Search history"
               value={search}
               onChangeText={setSearch}
@@ -1040,6 +1094,18 @@ export default function AppScreen() {
           </>
         ) : (
           <>
+            <Text style={s.section}>Stock opname</Text>
+            <View style={s.card}>
+              <Text style={[s.small, { marginBottom: 16 }]}>
+                Import physical counts, compare batches, and approve adjustments
+                together.
+              </Text>
+              <Button
+                title="Open saved count"
+                onPress={() => router.setParams({ opname: "1" })}
+                disabled={busy}
+              />
+            </View>
             <Text style={s.section}>Reports</Text>
             <View style={s.card}>
               <Text style={[s.rowTitle, { marginBottom: 18 }]}>
@@ -1155,17 +1221,34 @@ export default function AppScreen() {
           </Pressable>
         ))}
       </View>
+      {ready && (
+        <StockOpname
+          key={account || "local"}
+          owner={account || "local"}
+          data={data}
+          visible={params.opname === "1"}
+          onClose={() => router.setParams({ opname: "" })}
+          onApprove={approveCount}
+        />
+      )}
       {exportKind && (
         <ExportSheet
           data={data}
           loadData={
             account
-              ? async () => {
+              ? async (filters) => {
                   if ((await offlineStorage.load(account)).pending.length)
                     throw Error(
                       "Sync pending entries before exporting a complete cloud report.",
                     );
-                  return readInventory(true, account);
+                  const snapshot = await loadCloudReport(account, filters);
+                  if (activeAccount.current !== account)
+                    throw Error("Account changed. Reopen the export.");
+                  if ((await offlineStorage.load(account)).pending.length)
+                    throw Error(
+                      "Stock changed. Sync pending entries before exporting.",
+                    );
+                  return snapshot;
                 }
               : undefined
           }
